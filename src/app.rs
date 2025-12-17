@@ -234,6 +234,7 @@ impl App {
         let contents = self.find_property(&contents, "minecraft_version")?.replace(&self.mc_versions[index].0.to_string());
         let contents = self.find_property(&contents, "yarn_mappings")?.replace(&format!("{}+build.{}", self.mc_versions[index].0, self.mc_versions[index].1));
         let contents = self.find_property(&contents, "java_version")?.replace(&java_version.to_string());
+        let contents = self.find_property(&contents, "enforce_range")?.replace("false");
         self.write_properties(&contents)?;
         
         println!("Testing Minecraft version {}.", self.mc_versions[index].0);
@@ -271,12 +272,16 @@ impl App {
                         new_contents.push_str(&format!("{}={}", name, dependency_version.version_number));
                         if line.ends_with("\r") { new_contents.push_str("\r"); }
                         
+                        let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
                             let path = self.cwd.join(DEPENDENCIES).join(format!("{}-{}.jar", name, dependency_version.version_number));
-                            self.api_download_file(&file.url, path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
+                            if !std::fs::exists(path.clone())? {
+                                self.api_download_file(&file.url, path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
+                                downloaded = true;
+                            }
                         }
                         
-                        print!("Fetched '{}-{}', supports: ", name, dependency_version.version_number);
+                        print!("{} '{}-{}', supports: ", if downloaded {"Fetched"} else {"Already have"}, name, dependency_version.version_number);
                         for (i, version) in dependency_version.game_versions.iter().enumerate() {
                             if i > 0 { print!(", "); }
                             print!("{}", version);
@@ -328,6 +333,43 @@ impl App {
         
         self.write_properties(&ranges_part.replace(&new_ranges_string))?;
         println!("Added Minecraft version {} to the compatibility range.", version);
+        Ok(())
+    }
+    
+    pub fn release(&self) -> Result<()> {
+        let contents = self.read_properties()?;
+        let ranges = simplify_range_set(self.parse_current_ranges(&contents)?);
+        
+        let mut versions = vec![];
+        let mut mapping = None;
+        for (v, m) in self.mc_versions.iter().rev() {
+            for range in &ranges {
+                if range.contains(v) {
+                    versions.push(v);
+                    if mapping.is_none() {
+                        mapping = Some(m);
+                    }
+                    break
+                }
+            }
+        }
+        
+        let version = versions.first().ok_or("Current compatable range contains no known Minecraft versions.")?;
+        let mapping = mapping.ok_or("Current compatable range contains no known Minecraft versions.")?;
+        
+        let contents = self.find_property(&contents, "minecraft_version")?.replace(&version.to_string());
+        let contents = self.find_property(&contents, "yarn_mappings")?.replace(&format!("{}+build.{}", version, mapping));
+        let contents = self.find_property(&contents, "java_version")?.replace(&get_java_version(&version).to_string());
+        let contents = self.find_property(&contents, "enforce_range")?.replace("true");
+        self.write_properties(&contents)?;
+        
+        self.fetch_dependencies()?;
+        print!("Ready to build release for Minecraft versions: ");
+        for (i, version) in versions.iter().enumerate() {
+            if i > 0 { print!(", "); }
+            print!("{}", version);
+        }
+        println!();
         Ok(())
     }
 }

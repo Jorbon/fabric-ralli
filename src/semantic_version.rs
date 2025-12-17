@@ -143,7 +143,9 @@ pub struct SemanticVersionRange {
 }
 
 impl SemanticVersionRange {
-    
+    pub fn contains(&self, version: &SemanticVersion) -> bool {
+        self.start.as_ref().map(|start| *version >= *start).unwrap_or(true) && self.end.as_ref().map(|end| *version < *end).unwrap_or(true)
+    }
 }
 
 impl std::fmt::Display for SemanticVersionRange {
