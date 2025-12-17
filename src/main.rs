@@ -1,7 +1,4 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
-use std::{io::{Read, Write}, path::PathBuf, process::Command, str::FromStr};
+use std::io::Write;
 
 pub mod common;
 pub mod api_structs;
@@ -10,10 +7,7 @@ pub mod app;
 mod test;
 
 use common::*;
-use api_structs::*;
-use semantic_version::*;
-use app::*;
-
+use crate::{app::{App, gradle_command}, semantic_version::SemanticVersion};
 
 
 fn handle_command(app: &App, line: &str) -> Result<bool> {
@@ -26,12 +20,16 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
                 false
             }
             "stop" => {
-                stop_gradle()?;
+                gradle_command(["--stop"])?;
                 false
             }
             "clean" => {
-                clean_gradle()?;
+                gradle_command(["clean", "--no-build-cache", "--refresh-dependencies"])?;
                 app.clean_dependencies()?;
+                false
+            }
+            "gradle" => {
+                gradle_command(parts)?;
                 false
             }
             "test" => {
@@ -107,7 +105,8 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
 fn main() {
     
     let mut app = App::new();
-    stop_gradle().unwrap();
+    println!("Stopping gradle daemons...");
+    gradle_command(["--stop"]).unwrap();
     app.update_gradle().unwrap();
     app.update_static_info().unwrap();
     app.fetch_version_info().unwrap();

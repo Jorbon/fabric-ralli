@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use reqwest::Version;
-
 use crate::common::*;
 
 /// Version information and formatting as defined by https://semver.org/

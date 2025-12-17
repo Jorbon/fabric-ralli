@@ -20,3 +20,16 @@ impl<'a> SubstringRef<'a> {
         String::from(self.before) + insert_string + self.after
     }
 }
+
+pub fn clean_folder(path: impl AsRef<std::path::Path>) -> Result<()> {
+    for entry in std::fs::read_dir(path)? {
+        if let Ok(entry) = entry {
+            if let Ok(t) = entry.file_type() {
+                if t.is_file() && !entry.file_name().to_string_lossy().starts_with("_") {
+                    std::fs::remove_file(entry.path())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}

@@ -1,4 +1,4 @@
-use std::{io::{Read, Write}, path::PathBuf, process::Command};
+use std::{io::{Read, Write}, path::PathBuf, process::{Command, Stdio}};
 
 use crate::{api_structs::{FabricLoaderVersion, GradleVersion, LoomVersion, MinecraftVersion, ProjectVersion, YarnMappingsVersion}, common::*, semantic_version::{SemanticVersion, SemanticVersionRange, simplify_range_set}};
 
@@ -18,32 +18,17 @@ fn get_java_version(mc_version: &SemanticVersion) -> u32 {
     }).unwrap_or(8)
 }
 
-const GRADLE: &str = "./gradlew.bat";
+pub const GRADLE: &str = "./gradlew.bat";
 const GRADLE_PROPERTIES: &str = "gradle.properties";
-const DEPENDENCIES: &str = "dependencies";
 
-
-pub fn stop_gradle() -> Result<()> {
-    println!("Stopping gradle daemons...");
-    let result = Command::new(GRADLE).arg("--stop").output()?;
-    if result.status.success() {
-        println!("{}", String::from_utf8(result.stdout)?);
-        Ok(())
-    } else {
-        Err(format!("Gradle command error: {result:?}").into())
-    }
+pub fn gradle_command<S: AsRef<std::ffi::OsStr>>(args: impl IntoIterator<Item = S>) -> Result<()> {
+    Command::new(GRADLE).args(args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()?.wait()?;
+    Ok(())
 }
-
-pub fn clean_gradle() -> Result<()> {
-    match Command::new(GRADLE).arg("clean").arg("--no-build-cache").arg("--refresh-dependencies").output() {
-        Ok(output) => {
-            dbg!(output);
-            Ok(())
-        }
-        Err(e) => Err(e.into())
-    }
-}
-
 
 
 pub struct App {
@@ -208,15 +193,7 @@ impl App {
     }
     
     pub fn clean_dependencies(&self) -> Result<()> {
-        for entry in std::fs::read_dir(self.cwd.join(self.read_property("dependencies_path")?))? {
-            if let Ok(entry) = entry {
-                if let Ok(t) = entry.file_type() {
-                    if t.is_file() {
-                        std::fs::remove_file(entry.path())?;
-                    }
-                }
-            }
-        }
+        clean_folder(self.cwd.join(self.read_property("dependencies_path")?))?;
         Ok(())
     }
     
@@ -252,6 +229,9 @@ impl App {
         let dependencies_path = self.find_property(&contents, "dependencies_path")?.substring.to_owned();
         let mut new_contents = String::new();
         
+        let copy_jars_into = self.cwd.join("run/mods");
+        clean_folder(&copy_jars_into)?;
+        
         let mut lines = contents.split('\n');
         loop {
             if let Some(line) = lines.next() {
@@ -280,11 +260,14 @@ impl App {
                         
                         let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
-                            let path = self.cwd.join(&dependencies_path).join(format!("{}-{}.jar", name, dependency_version.version_number));
-                            if !std::fs::exists(path.clone())? {
-                                self.api_download_file(&file.url, path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
+                            let file_name = format!("{}-{}.jar", name, dependency_version.version_number);
+                            let path = self.cwd.join(&dependencies_path).join(&file_name);
+                            if !std::fs::exists(&path)? {
+                                self.api_download_file(&file.url, &path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
                                 downloaded = true;
                             }
+                            
+                            std::fs::copy(&path, &copy_jars_into.join(&file_name))?;
                         }
                         
                         print!("{} '{}-{}', supports: ", if downloaded {"Fetched"} else {"Already have"}, name, dependency_version.version_number);
@@ -338,25 +321,26 @@ impl App {
         let ranges = simplify_range_set(self.parse_current_ranges(&contents)?);
         
         let mut versions = vec![];
-        let mut mapping = None;
-        for (v, m) in self.mc_versions.iter().rev() {
+        let mut first_index = None;
+        for (i, (version, _)) in self.mc_versions.iter().rev().enumerate() {
             for range in &ranges {
-                if range.contains(v) {
-                    versions.push(v);
-                    if mapping.is_none() {
-                        mapping = Some(m);
+                if range.contains(version) {
+                    versions.push(version);
+                    if first_index.is_none() {
+                        first_index = Some(i);
                     }
                     break
                 }
             }
         }
+        let index = first_index.ok_or("Current compatable range contains no known Minecraft versions.")?;
         
-        let version = versions.first().ok_or("Current compatable range contains no known Minecraft versions.")?;
-        let mapping = mapping.ok_or("Current compatable range contains no known Minecraft versions.")?;
-        
-        let contents = self.find_property(&contents, "minecraft_version")?.replace(&version.to_string());
-        let contents = self.find_property(&contents, "yarn_mappings")?.replace(&format!("{}+build.{}", version, mapping));
-        let contents = self.find_property(&contents, "java_version")?.replace(&get_java_version(&version).to_string());
+        // let (version, mapping) = &self.mc_versions[index];
+        // let contents = self.find_property(&contents, "minecraft_version")?.replace(&version.to_string());
+        // let contents = self.find_property(&contents, "yarn_mappings")?.replace(&format!("{}+build.{}", version, mapping));
+        // let contents = self.find_property(&contents, "java_version")?.replace(&get_java_version(&version).to_string());
+        self.test_version(index)?;
+        let contents = self.read_properties()?;
         let contents = self.find_property(&contents, "enforce_range")?.replace("true");
         self.write_properties(&contents)?;
         
