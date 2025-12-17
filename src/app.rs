@@ -316,16 +316,7 @@ impl App {
         let mut ranges = self.parse_ranges_slice(&ranges_part)?;
         ranges.push(SemanticVersionRange {
             start: Some(version.clone()),
-            end: match index.checked_sub(1) {
-                Some(index) => Some(self.mc_versions[index].0.clone()),
-                None => self.mc_versions.first().map(|(v, _)| SemanticVersion {
-                    major: v.major,
-                    minor: v.minor + 1,
-                    patch: 0,
-                    release: None,
-                    build: None,
-                })
-            },
+            end: index.checked_sub(1).map(|i| self.mc_versions[i].0.clone()),
         });
         
         let mut new_ranges_string = String::from("[");
