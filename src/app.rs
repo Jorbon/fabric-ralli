@@ -97,6 +97,10 @@ impl App {
         SubstringRef::find(contents, &format!("\n{name}="), "\n").ok_or(format!("No property '{name}' found in gradle properties.").into())
     }
     
+    fn read_property(&self, name: &str) -> Result<String> {
+        Ok(self.find_property(&self.read_properties()?, name)?.substring.to_owned())
+    }
+    
     fn parse_ranges_slice(&self, ranges_part: &SubstringRef) -> Result<Vec<SemanticVersionRange>> {
         let mut ranges = vec![];
         for range_string in ranges_part.substring.trim().trim_start_matches("[").trim_end_matches("]").split(",") {
@@ -204,7 +208,7 @@ impl App {
     }
     
     pub fn clean_dependencies(&self) -> Result<()> {
-        for entry in std::fs::read_dir(self.cwd.join(DEPENDENCIES))? {
+        for entry in std::fs::read_dir(self.cwd.join(self.read_property("dependencies_path")?))? {
             if let Ok(entry) = entry {
                 if let Ok(t) = entry.file_type() {
                     if t.is_file() {
@@ -237,6 +241,7 @@ impl App {
         let contents = self.find_property(&contents, "enforce_range")?.replace("false");
         self.write_properties(&contents)?;
         
+        self.fetch_dependencies()?;
         println!("Testing Minecraft version {}.", self.mc_versions[index].0);
         Ok(())
     }
@@ -244,6 +249,7 @@ impl App {
     pub fn fetch_dependencies(&self) -> Result<()> {
         let contents = self.read_properties()?;
         let version = self.find_property(&contents, "minecraft_version")?.substring.parse::<SemanticVersion>()?;
+        let dependencies_path = self.find_property(&contents, "dependencies_path")?.substring.to_owned();
         let mut new_contents = String::new();
         
         let mut lines = contents.split('\n');
@@ -261,7 +267,7 @@ impl App {
             new_contents.push_str("\n");
             if let Some((name, _)) = line.split_once("=") {
                 match name.trim() {
-                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" => {
+                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" | "dependencies_path" => {
                         new_contents.push_str(line);
                     }
                     name => {
@@ -274,7 +280,7 @@ impl App {
                         
                         let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
-                            let path = self.cwd.join(DEPENDENCIES).join(format!("{}-{}.jar", name, dependency_version.version_number));
+                            let path = self.cwd.join(&dependencies_path).join(format!("{}-{}.jar", name, dependency_version.version_number));
                             if !std::fs::exists(path.clone())? {
                                 self.api_download_file(&file.url, path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
                                 downloaded = true;
