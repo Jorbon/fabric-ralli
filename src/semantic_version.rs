@@ -250,23 +250,22 @@ pub fn simplify_range_set(mut ranges: Vec<SemanticVersionRange>) -> Vec<Semantic
     ranges.sort_by(|a, b| a.start.cmp(&b.start));
     let mut sorted_ranges = ranges.into_iter();
     let mut merged_ranges = vec![];
-    loop {
-        match sorted_ranges.next() {
-            None => return merged_ranges,
-            Some(mut range) => merged_ranges.push(loop {
-                match sorted_ranges.next() {
-                    None => {
-                        merged_ranges.push(range);
-                        return merged_ranges
-                    }
-                    Some(next_range) => if next_range.start <= range.end {
-                        range.end = next_range.end
-                    } else {
-                        break range
-                    }
-                }
-            })
+    
+    let mut current = match sorted_ranges.next() {
+        Some(range) => range,
+        None => return merged_ranges,
+    };
+    
+    for next in sorted_ranges {
+        if next.start <= current.end {
+            current.end = next.end;
+        } else {
+            merged_ranges.push(current);
+            current = next;
         }
     }
+    
+    merged_ranges.push(current);
+    merged_ranges
 }
 

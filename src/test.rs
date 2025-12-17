@@ -34,4 +34,12 @@ fn version_merging() {
     ]) {
         println!("{}", range);
     }
+    println!();
+    for range in simplify_range_set(vec![
+        ">=1.14 <1.16.3".parse().unwrap(),
+        ">=1.18 <1.19".parse().unwrap(),
+        ">=1.21.11 <1.22".parse().unwrap(),
+    ]) {
+        println!("{}", range);
+    }
 }
