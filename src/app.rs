@@ -10,6 +10,14 @@ pub const JAVA_VERSION_TABLE: [(SemanticVersion, u32); 4] = [
     (SemanticVersion { major: 1, minor: 20, patch: 5, release: None, build: None }, 21),
 ];
 
+fn get_java_version(mc_version: &SemanticVersion) -> u32 {
+    JAVA_VERSION_TABLE.iter().rev().find_map(|(mc_version_start, java_version)| {
+        if *mc_version >= *mc_version_start {
+            Some(*java_version)
+        } else { None }
+    }).unwrap_or(8)
+}
+
 const GRADLE: &str = "./gradlew.bat";
 const GRADLE_PROPERTIES: &str = "gradle.properties";
 const DEPENDENCIES: &str = "dependencies";
@@ -204,6 +212,18 @@ impl App {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
         
+        let java_version = get_java_version(match simplify_range_set(self.parse_current_ranges(&contents)?).first() {
+            Some(first_range) => match &first_range.start {
+                Some(start) => if *start < self.mc_versions[index].0 {
+                    start
+                } else {
+                    &self.mc_versions[index].0
+                }
+                None => &self.mc_versions[index].0,
+            }
+            None => &self.mc_versions[index].0,
+        });
+        
         let substring = SubstringRef::find(&contents, "\nminecraft_version=", "\n").ok_or("No property 'minecraft_version' found in gradle properties.")?;
         let contents = substring.replace(&self.mc_versions[index].0.to_string());
         
@@ -211,11 +231,6 @@ impl App {
         let contents = substring.replace(&format!("{}+build.{}", self.mc_versions[index].0, self.mc_versions[index].1));
         
         let substring = SubstringRef::find(&contents, "\njava_version=", "\n").ok_or("No property 'java_version' found in gradle properties.")?;
-        let java_version = JAVA_VERSION_TABLE.iter().rev().find_map(|(mc_version_start, java_version)| {
-            if self.mc_versions[index].0 >= *mc_version_start {
-                Some(*java_version)
-            } else { None }
-        }).unwrap_or(8);
         let contents = substring.replace(&java_version.to_string());
         
         let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
