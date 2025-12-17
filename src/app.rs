@@ -205,6 +205,7 @@ impl App {
     }
     
     pub fn test_version(&self, index: usize) -> Result<()> {
+        gradle_command(["--stop"])?;
         let contents = self.read_properties()?;
         
         let java_version = get_java_version(match simplify_range_set(self.parse_current_ranges(&contents)?).first() {

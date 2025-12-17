@@ -4,7 +4,8 @@ pub mod common;
 pub mod api_structs;
 pub mod semantic_version;
 pub mod app;
-mod test;
+
+#[cfg(test)] mod test;
 
 use common::*;
 use crate::{app::{App, gradle_command}, semantic_version::SemanticVersion};
@@ -24,8 +25,17 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
                 false
             }
             "clean" => {
-                gradle_command(["clean", "--no-build-cache", "--refresh-dependencies"])?;
-                app.clean_dependencies()?;
+                if let Some(next) = parts.next() {
+                    match next.to_lowercase().as_str() {
+                        "gradle" => gradle_command(["clean", "--no-build-cache", "--refresh-dependencies"])?,
+                        "deps" => app.clean_dependencies()?,
+                        _ => println!("Usage: clean (gradle | deps)")
+                    }
+                }
+                false
+            }
+            "build" => {
+                gradle_command(["clean", "build"])?;
                 false
             }
             "gradle" => {
@@ -42,7 +52,7 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
                         Err(_) => println!("'{}' isn't a version!", s)
                     }
                 } else {
-                    println!("Usage: 'test <version>'");
+                    println!("Usage: test <version>");
                 }
                 false
             }

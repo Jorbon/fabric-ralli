@@ -3,7 +3,7 @@ plugins {
 	id 'maven-publish'
 }
 
-version = "${project.mod_version}+${project.minecraft_version}"
+version = project.mod_version
 group = project.maven_group
 
 base {
@@ -11,23 +11,18 @@ base {
 }
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
 	flatDir {
         dirs project.dependencies_path
     }
 }
 
 loom {
-	splitEnvironmentSourceSets()
+	// splitEnvironmentSourceSets()
 	
 	mods {
 		"${project.project_id}" {
 			sourceSet sourceSets.main
-			sourceSet sourceSets.client
+			// sourceSet sourceSets.client
 		}
 	}
 }
@@ -36,8 +31,8 @@ sourceSets {
 	main.java.srcDirs = ["mod_main_java_folder"]
 	main.resources.srcDirs = ["mod_main_resources_folder"]
 	
-	client.java.srcDirs = ["mod_client_java_folder"]
-	client.resources.srcDirs = ["mod_client_resources_folder"]
+	// client.java.srcDirs = ["mod_client_java_folder"]
+	// client.resources.srcDirs = ["mod_client_resources_folder"]
 }
 
 
@@ -65,10 +60,23 @@ processResources {
 			minecraft_compatible_range: inputs.properties.minecraft_compatible_range,
 		)
 	}
+	
+	filesMatching("${project.project_id}.mixins.json") {
+		expand (
+			java_version: JavaVersion.toVersion(project.java_version).toString().replace(".", "_"),
+		)
+	}
+	
+	// Does not work with splitEnvironmentSourceSets
+	filesMatching("${project.project_id}.client.mixins.json") {
+		expand (
+			java_version: JavaVersion.toVersion(project.java_version).toString().replace(".", "_"),
+		)
+	}
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = Integer.parseInt("${project.java_version}")
+	it.options.release = Integer.parseInt(project.java_version)
 }
 
 java {
@@ -77,8 +85,8 @@ java {
 	// If you remove this line, sources will not be generated.
 	// withSourcesJar()
 	
-	sourceCompatibility = JavaVersion.toVersion("${project.java_version}")
-	targetCompatibility = JavaVersion.toVersion("${project.java_version}")
+	sourceCompatibility = JavaVersion.toVersion(project.java_version)
+	targetCompatibility = JavaVersion.toVersion(project.java_version)
 }
 
 jar {

@@ -1,4 +1,4 @@
-use crate::semantic_version::{SemanticVersion, SemanticVersionRange, simplify_range_set};
+use crate::semantic_version::{SemanticVersion, simplify_range_set};
 
 
 #[test]
