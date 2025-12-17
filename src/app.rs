@@ -74,7 +74,7 @@ impl App {
             Ok(())
         } else {
             let new_contents = gradle_url_part.replace(&new_url);
-            let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+            let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
             file.write_all(new_contents.as_bytes())?;
             
             println!("Updating gradle version to {}", version.version);
@@ -131,7 +131,7 @@ impl App {
         };
         
         if changed {
-            let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+            let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
             file.write_all(contents.as_bytes())?;
         }
         Ok(())
@@ -218,7 +218,7 @@ impl App {
         }).unwrap_or(8);
         let contents = substring.replace(&java_version.to_string());
         
-        let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
         file.write_all(contents.as_bytes())?;
         
         println!("Testing Minecraft version {}.", self.mc_versions[index].0);
@@ -272,7 +272,7 @@ impl App {
                             }
                             
                             let file_path = self.cwd.join(DEPENDENCIES).join(format!("{}-{}.jar", name, dependency_version.version_number));
-                            let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+                            let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
                             file.write_all(&response.bytes()?)?;
                             
                             break
@@ -292,7 +292,7 @@ impl App {
             }
         }
         
-        let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
         file.write_all(new_contents.strip_prefix("\n").unwrap_or(&new_contents).as_bytes())?;
         Ok(())
     }
@@ -340,7 +340,7 @@ impl App {
         }
         new_ranges_string.push_str("]");
         
-        let mut file = std::fs::File::options().write(true).create(true).open(&file_path)?;
+        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
         file.write_all(ranges_part.replace(&new_ranges_string).as_bytes())?;
         
         println!("Added Minecraft version {} to the compatibility range.", version);
