@@ -79,7 +79,14 @@ impl App {
     }
     
     fn find_property<'a>(&self, contents: &'a str, name: &str) -> Result<SubstringRef<'a>> {
-        SubstringRef::find(contents, &format!("\n{name}="), "\n").ok_or(format!("No property '{name}' found in gradle properties.").into())
+        let start_pattern = format!("\n{name}=");
+        (|| {
+            let (before, rest) = contents.split_at_checked(contents.find(&start_pattern)? + start_pattern.len())?;
+            let line = rest.split_once("\n").map(|(s, _)| s).unwrap_or(rest);
+            let substring = line.split_once("#").map(|(s, _)| s).unwrap_or(line).trim_end();
+            let after = rest.split_at_checked(substring.len())?.1;
+            Some(SubstringRef { before, substring, after })
+        })().ok_or(format!("No property '{name}' found in gradle properties.").into())
     }
     
     fn read_property(&self, name: &str) -> Result<String> {
@@ -245,7 +252,8 @@ impl App {
         
         for line in lines {
             new_contents.push_str("\n");
-            if let Some((name, _)) = line.split_once("=") {
+            let (line_before_comment, comment) = line.split_once("#").map(|(l, c)| (l, Some(c))).unwrap_or((line, None));
+            if let Some((name, _)) = line_before_comment.split_once("=") {
                 match name.trim() {
                     "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" | "dependencies_path" => {
                         new_contents.push_str(line);
@@ -255,8 +263,15 @@ impl App {
                         let versions = versions.map_err(|e| format!("Cound not get version info for dependency '{}' from modrinth: {}", name, e))?;
                         let dependency_version = versions.get(0).ok_or(format!("Dependency '{}' does not support Minecraft version {}.", name, version))?;
                         
-                        new_contents.push_str(&format!("{}={}", name, dependency_version.version_number));
-                        if line.ends_with("\r") { new_contents.push_str("\r"); }
+                        new_contents.push_str(name);
+                        new_contents.push_str("=");
+                        new_contents.push_str(&dependency_version.version_number.to_string());
+                        if let Some(comment) = comment {
+                            new_contents.push_str(" #");
+                            new_contents.push_str(comment);
+                        } else {
+                            if line_before_comment.ends_with("\r") { new_contents.push_str("\r"); }
+                        }
                         
                         let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
