@@ -61,14 +61,68 @@ impl App {
             mc_versions: Box::new([(SemanticVersion::default(), 0); 0]),
         }
     }
-
-    pub fn update_gradle(&self) -> Result<()> {
-        let response = self.http_client.get("https://services.gradle.org/versions/current").send()?;
+    
+    fn api_request<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
+        let response = self.http_client.get(url).send()?;
         if !response.status().is_success() {
             return Err(format!("{:?}", response.error_for_status()).into())
         }
-        
-        let version = response.json::<GradleVersion>()?;
+        Ok(response.json::<T>()?)
+    }
+    
+    fn api_download_file(&self, url: &str, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let response = self.http_client.get(url).send()?;
+        if !response.status().is_success() {
+            return Err(format!("{:?}", response.error_for_status()).into())
+        }
+        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(path)?;
+        file.write_all(&response.bytes()?)?;
+        Ok(())
+    }
+    
+    fn read_properties(&self) -> Result<String> {
+        let mut file = std::fs::File::options().read(true).open(&self.cwd.join(GRADLE_PROPERTIES))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Ok(contents)
+    }
+    
+    fn write_properties(&self, contents: &str) -> Result<()> {
+        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&self.cwd.join(GRADLE_PROPERTIES))?;
+        file.write_all(contents.as_bytes())?;
+        Ok(())
+    }
+    
+    fn find_property<'a>(&self, contents: &'a str, name: &str) -> Result<SubstringRef<'a>> {
+        SubstringRef::find(contents, &format!("\n{name}="), "\n").ok_or(format!("No property '{name}' found in gradle properties.").into())
+    }
+    
+    fn parse_ranges_slice(&self, ranges_part: &SubstringRef) -> Result<Vec<SemanticVersionRange>> {
+        let mut ranges = vec![];
+        for range_string in ranges_part.substring.trim().trim_start_matches("[").trim_end_matches("]").split(",") {
+            if range_string.is_empty() { continue }
+            match range_string.trim().trim_matches('\"').parse() {
+                Ok(range) => ranges.push(range),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(ranges)
+    }
+    
+    fn parse_current_ranges(&self, contents: &str) -> Result<Vec<SemanticVersionRange>> {
+        self.parse_ranges_slice(&self.find_property(contents, "minecraft_compatible_range")?)
+    }
+    
+    pub fn get_current_ranges(&self) -> Result<Vec<SemanticVersionRange>> {
+        let file_path = self.cwd.join(GRADLE_PROPERTIES);
+        let mut file = std::fs::File::options().read(true).open(&file_path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Ok(simplify_range_set(self.parse_current_ranges(&contents)?))
+    }
+    
+    pub fn update_gradle(&self) -> Result<()> {
+        let version = self.api_request::<GradleVersion>("https://services.gradle.org/versions/current")?;
         let new_url = version.downloadUrl.replace(":", "\\:");
         
         let file_path = self.cwd.join("gradle/wrapper/gradle-wrapper.properties");
@@ -97,28 +151,14 @@ impl App {
     }
     
     pub fn update_static_info(&self) -> Result<()> {
-        let loom_response = self.http_client.get("https://api.github.com/repos/FabricMC/fabric-loom/releases/latest").send()?;
-        if !loom_response.status().is_success() {
-            return Err(format!("{:?}", loom_response.error_for_status()).into())
-        }
-        let loader_response = self.http_client.get("https://meta.fabricmc.net/v2/versions/loader").send()?;
-        if !loader_response.status().is_success() {
-            return Err(format!("{:?}", loader_response.error_for_status()).into())
-        }
-        
-        let loom_version = loom_response.json::<LoomVersion>()?.tag_name;
+        let loom_version = self.api_request::<LoomVersion>("https://api.github.com/repos/FabricMC/fabric-loom/releases/latest")?.tag_name;
         let loom_version_full = format!("{}-SNAPSHOT", loom_version);
-        let loader_version = loader_response.json::<Box<[FabricLoaderVersion]>>()?.iter().filter(|v| v.stable).next().ok_or("No stable loader versions found.")?.version.clone();
+        let loader_version = self.api_request::<Box<[FabricLoaderVersion]>>("https://meta.fabricmc.net/v2/versions/loader")?.iter().filter(|v| v.stable).next().ok_or("No stable loader versions found.")?.version.clone();
         
-        
-        let file_path = self.cwd.join(GRADLE_PROPERTIES);
-        let mut file = std::fs::File::options().read(true).open(&file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        
+        let contents = self.read_properties()?;
         let mut changed = false;
         
-        let loom_version_part = SubstringRef::find(&contents, "\nloom_version=", "\n").ok_or("No property 'loom_version' found in gradle properties.")?;
+        let loom_version_part = self.find_property(&contents, "loom_version")?;
         let contents = if loom_version_part.substring.trim() == loom_version_full {
             println!("Loom version {} is up to date.", loom_version);
             contents
@@ -128,7 +168,7 @@ impl App {
             loom_version_part.replace(&loom_version_full)
         };
         
-        let loader_version_part = SubstringRef::find(&contents, "\nloader_version=", "\n").ok_or("No property 'loader_version' found in gradle properties.")?;
+        let loader_version_part = self.find_property(&contents, "loader_version")?;
         let contents = if loader_version_part.substring.trim() == loader_version {
             println!("Loader version {} is up to date.", loader_version);
             contents
@@ -139,29 +179,19 @@ impl App {
         };
         
         if changed {
-            let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
-            file.write_all(contents.as_bytes())?;
+            self.write_properties(&contents)?;
         }
         Ok(())
     }
     
     pub fn fetch_version_info(&mut self) -> Result<()> {
-        let versions_response = self.http_client.get("https://meta.fabricmc.net/v2/versions/game").send()?;
-        if !versions_response.status().is_success() {
-            return Err(format!("Cound not get game version info: {:?}", versions_response.error_for_status()).into())
-        }
-        let mappings_response = self.http_client.get("https://meta.fabricmc.net/v2/versions/yarn").send()?;
-        if !mappings_response.status().is_success() {
-            return Err(format!("Cound not get yarn mappings info: {:?}", mappings_response.error_for_status()).into())
-        }
-        
-        let mut versions = versions_response.json::<Box<[MinecraftVersion]>>()?.iter().filter_map(|v| {
+        let mut versions = self.api_request::<Box<[MinecraftVersion]>>("https://meta.fabricmc.net/v2/versions/game")?.iter().filter_map(|v| {
             if v.stable {
                 Some((v.version.parse().ok()?, 0u32))
             } else { None }
         }).collect::<Box<[_]>>();
         
-        for mapping in mappings_response.json::<Box<[YarnMappingsVersion]>>()? {
+        for mapping in self.api_request::<Box<[YarnMappingsVersion]>>("https://meta.fabricmc.net/v2/versions/yarn")? {
             if let Ok(version) = mapping.gameVersion.parse() {
                 if let Some(matching) = versions.iter_mut().find(|v| v.0 == version) {
                     matching.1 = u32::max(matching.1, mapping.build);
@@ -183,34 +213,11 @@ impl App {
                 }
             }
         }
-        
         Ok(())
     }
     
-    pub fn get_current_ranges(&self) -> Result<Vec<SemanticVersionRange>> {
-        let file_path = self.cwd.join(GRADLE_PROPERTIES);
-        let mut file = std::fs::File::options().read(true).open(&file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let ranges_part = SubstringRef::find(&contents, "\nminecraft_compatible_range=", "\n").ok_or("No property 'minecraft_compatible_range' found in gradle properties.")?;
-        
-        let mut ranges = vec![];
-        for range_string in ranges_part.substring.trim().trim_start_matches("[").trim_end_matches("]").split(",") {
-            if range_string.is_empty() { continue }
-            match range_string.trim().trim_matches('\"').parse() {
-                Ok(range) => ranges.push(range),
-                Err(e) => return Err(e),
-            }
-        }
-        
-        Ok(simplify_range_set(ranges))
-    }
-    
     pub fn test_version(&self, index: usize) -> Result<()> {
-        let file_path = self.cwd.join(GRADLE_PROPERTIES);
-        let mut file = std::fs::File::options().read(true).open(&file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
+        let contents = self.read_properties()?;
         
         let java_version = get_java_version(match simplify_range_set(self.parse_current_ranges(&contents)?).first() {
             Some(first_range) => match &first_range.start {
@@ -224,30 +231,18 @@ impl App {
             None => &self.mc_versions[index].0,
         });
         
-        let substring = SubstringRef::find(&contents, "\nminecraft_version=", "\n").ok_or("No property 'minecraft_version' found in gradle properties.")?;
-        let contents = substring.replace(&self.mc_versions[index].0.to_string());
-        
-        let substring = SubstringRef::find(&contents, "\nyarn_mappings=", "\n").ok_or("No property 'yarn_mappings' found in gradle properties.")?;
-        let contents = substring.replace(&format!("{}+build.{}", self.mc_versions[index].0, self.mc_versions[index].1));
-        
-        let substring = SubstringRef::find(&contents, "\njava_version=", "\n").ok_or("No property 'java_version' found in gradle properties.")?;
-        let contents = substring.replace(&java_version.to_string());
-        
-        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
-        file.write_all(contents.as_bytes())?;
+        let contents = self.find_property(&contents, "minecraft_version")?.replace(&self.mc_versions[index].0.to_string());
+        let contents = self.find_property(&contents, "yarn_mappings")?.replace(&format!("{}+build.{}", self.mc_versions[index].0, self.mc_versions[index].1));
+        let contents = self.find_property(&contents, "java_version")?.replace(&java_version.to_string());
+        self.write_properties(&contents)?;
         
         println!("Testing Minecraft version {}.", self.mc_versions[index].0);
         Ok(())
     }
     
     pub fn fetch_dependencies(&self) -> Result<()> {
-        let file_path = self.cwd.join(GRADLE_PROPERTIES);
-        let mut file = std::fs::File::options().read(true).open(&file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        
-        let version = SubstringRef::find(&contents, "\nminecraft_version=", "\n").ok_or("No property 'minecraft_version' found in gradle properties.")?.substring.parse::<SemanticVersion>()?;
-        
+        let contents = self.read_properties()?;
+        let version = self.find_property(&contents, "minecraft_version")?.substring.parse::<SemanticVersion>()?;
         let mut new_contents = String::new();
         
         let mut lines = contents.split('\n');
@@ -265,32 +260,20 @@ impl App {
             new_contents.push_str("\n");
             if let Some((name, _)) = line.split_once("=") {
                 match name.trim() {
-                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "minecraft_version" | "yarn_mappings" | "java_version" => {
+                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" => {
                         new_contents.push_str(line);
                     }
                     name => {
-                        let response = self.http_client.get(&format!("https://api.modrinth.com/v2/project/{}/version?loaders=[\"fabric\"]&game_versions=[\"{}\"]", name, version)).send()?;
-                        if !response.status().is_success() {
-                            return Err(format!("Cound not get version info for dependency '{}': {:?}", name, response.error_for_status()).into())
-                        }
-                        
-                        let versions = response.json::<Box<[ProjectVersion]>>()?;
+                        let versions = self.api_request::<Box<[ProjectVersion]>>(&format!("https://api.modrinth.com/v2/project/{}/version?loaders=[\"fabric\"]&game_versions=[\"{}\"]", name, version));
+                        let versions = versions.map_err(|e| format!("Cound not get version info for dependency '{}' from modrinth: {}", name, e))?;
                         let dependency_version = versions.get(0).ok_or(format!("Dependency '{}' does not support Minecraft version {}.", name, version))?;
                         
                         new_contents.push_str(&format!("{}={}", name, dependency_version.version_number));
                         if line.ends_with("\r") { new_contents.push_str("\r"); }
                         
-                        for file in &dependency_version.files {
-                            let response = self.http_client.get(&file.url).send()?;
-                            if !response.status().is_success() {
-                                return Err(format!("Cound not download dependency '{}-{}': {:?}", name, dependency_version.version_number, response.error_for_status()).into())
-                            }
-                            
-                            let file_path = self.cwd.join(DEPENDENCIES).join(format!("{}-{}.jar", name, dependency_version.version_number));
-                            let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
-                            file.write_all(&response.bytes()?)?;
-                            
-                            break
+                        if let Some(file) = dependency_version.files.first() {
+                            let path = self.cwd.join(DEPENDENCIES).join(format!("{}-{}.jar", name, dependency_version.version_number));
+                            self.api_download_file(&file.url, path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
                         }
                         
                         print!("Fetched '{}-{}', supports: ", name, dependency_version.version_number);
@@ -307,31 +290,19 @@ impl App {
             }
         }
         
-        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
-        file.write_all(new_contents.strip_prefix("\n").unwrap_or(&new_contents).as_bytes())?;
+        self.write_properties(new_contents.strip_prefix("\n").unwrap_or(&new_contents))?;
         Ok(())
     }
     
     pub fn confirm_version(&self) -> Result<()> {
-        let file_path = self.cwd.join(GRADLE_PROPERTIES);
-        let mut file = std::fs::File::options().read(true).open(&file_path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let ranges_part = SubstringRef::find(&contents, "\nminecraft_compatible_range=", "\n").ok_or("No property 'minecraft_compatible_range' found in gradle properties.")?;
-        let version_part = SubstringRef::find(&contents, "\nminecraft_version=", "\n").ok_or("No property 'minecraft_version' found in gradle properties.")?;
-        
-        let mut ranges = vec![];
-        for range_string in ranges_part.substring.trim().trim_start_matches("[").trim_end_matches("]").split(",") {
-            if range_string.is_empty() { continue }
-            match range_string.trim().trim_matches('\"').parse() {
-                Ok(range) => ranges.push(range),
-                Err(e) => return Err(e),
-            }
-        }
+        let contents = self.read_properties()?;
+        let ranges_part = self.find_property(&contents, "minecraft_compatible_range")?;
+        let version_part = self.find_property(&contents, "minecraft_version")?;
         
         let version = version_part.substring.parse()?;
         let index = self.mc_versions.iter().position(|(v, _)| *v == version).ok_or("Current version not found in the Minecraft version list.")?;
         
+        let mut ranges = self.parse_ranges_slice(&ranges_part)?;
         ranges.push(SemanticVersionRange {
             start: Some(version.clone()),
             end: match index.checked_sub(1) {
@@ -355,9 +326,7 @@ impl App {
         }
         new_ranges_string.push_str("]");
         
-        let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
-        file.write_all(ranges_part.replace(&new_ranges_string).as_bytes())?;
-        
+        self.write_properties(&ranges_part.replace(&new_ranges_string))?;
         println!("Added Minecraft version {} to the compatibility range.", version);
         Ok(())
     }
