@@ -32,3 +32,12 @@ pub fn clean_folder(path: impl AsRef<std::path::Path>) -> Result<()> {
     }
     Ok(())
 }
+
+pub fn run_command(host: impl AsRef<std::ffi::OsStr>, args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> Result<()> {
+    std::process::Command::new(host).args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()?.wait()?;
+    Ok(())
+}

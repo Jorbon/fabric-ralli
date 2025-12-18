@@ -8,7 +8,7 @@ pub mod app;
 #[cfg(test)] mod test;
 
 use common::*;
-use crate::{app::{App, gradle_command}, semantic_version::SemanticVersion};
+use crate::{app::{App, GRADLE}, semantic_version::SemanticVersion};
 
 
 fn handle_command(app: &App, line: &str) -> Result<bool> {
@@ -21,13 +21,13 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
                 false
             }
             "stop" => {
-                gradle_command(["--stop"])?;
+                run_command(GRADLE, ["--stop"])?;
                 false
             }
             "clean" => {
                 if let Some(next) = parts.next() {
                     match next.to_lowercase().as_str() {
-                        "gradle" => gradle_command(["clean", "--no-build-cache", "--refresh-dependencies"])?,
+                        "gradle" => run_command(GRADLE, ["clean", "--no-build-cache", "--refresh-dependencies"])?,
                         "deps" => app.clean_dependencies()?,
                         _ => println!("Usage: clean (gradle | deps)")
                     }
@@ -35,11 +35,15 @@ fn handle_command(app: &App, line: &str) -> Result<bool> {
                 false
             }
             "build" => {
-                gradle_command(["clean", "build"])?;
+                run_command(GRADLE, ["clean", "build"])?;
                 false
             }
             "gradle" => {
-                gradle_command(parts)?;
+                run_command(GRADLE, parts)?;
+                false
+            }
+            "git" => {
+                run_command("git", parts)?;
                 false
             }
             "test" => {
@@ -116,7 +120,7 @@ fn main() {
     
     let mut app = App::new();
     println!("Stopping gradle daemons...");
-    gradle_command(["--stop"]).unwrap();
+    run_command(GRADLE, ["--stop"]).unwrap();
     app.update_gradle().unwrap();
     app.update_static_info().unwrap();
     app.fetch_version_info().unwrap();

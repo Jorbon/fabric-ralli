@@ -1,4 +1,4 @@
-use std::{io::{Read, Write}, path::PathBuf, process::{Command, Stdio}};
+use std::{io::{Read, Write}, path::PathBuf};
 
 use crate::{api_structs::{FabricLoaderVersion, GradleVersion, LoomVersion, MinecraftVersion, ProjectVersion, YarnMappingsVersion}, common::*, semantic_version::{SemanticVersion, SemanticVersionRange, simplify_range_set}};
 
@@ -18,18 +18,9 @@ fn get_java_version(mc_version: &SemanticVersion) -> u32 {
     }).unwrap_or(8)
 }
 
-pub const LOCAL_MAVEN: &str = "local_maven";
 pub const GRADLE: &str = "./gradlew.bat";
 const GRADLE_PROPERTIES: &str = "gradle.properties";
-
-pub fn gradle_command<S: AsRef<std::ffi::OsStr>>(args: impl IntoIterator<Item = S>) -> Result<()> {
-    Command::new(GRADLE).args(args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?.wait()?;
-    Ok(())
-}
+pub const LOCAL_MAVEN: &str = "local_maven";
 
 
 pub struct App {
@@ -126,21 +117,15 @@ impl App {
         let gradle_url_part = SubstringRef::find(&contents, "distributionUrl=", "\n").ok_or("Could not find location of active gradle source.")?;
         if gradle_url_part.substring.trim() == new_url.trim() {
             println!("Gradle version {} is up to date.", version.version);
-            Ok(())
         } else {
             let new_contents = gradle_url_part.replace(&new_url);
             let mut file = std::fs::File::options().write(true).create(true).truncate(true).open(&file_path)?;
             file.write_all(new_contents.as_bytes())?;
             
             println!("Updating gradle version to {}", version.version);
-            let result = Command::new(GRADLE).arg("--version").output()?;
-            if result.status.success() {
-                println!("{}", String::from_utf8(result.stdout)?);
-                Ok(())
-            } else {
-                Err(format!("Gradle command error: {result:?}").into())
-            }
+            run_command(GRADLE, ["--version"])?;
         }
+        Ok(())
     }
     
     pub fn update_static_info(&self) -> Result<()> {
@@ -202,7 +187,7 @@ impl App {
     }
     
     pub fn test_version(&self, index: usize) -> Result<()> {
-        gradle_command(["--stop"])?;
+        run_command(GRADLE, ["--stop"])?;
         let contents = self.read_properties()?;
         
         let java_version = get_java_version(match simplify_range_set(self.parse_current_ranges(&contents)?).first() {
