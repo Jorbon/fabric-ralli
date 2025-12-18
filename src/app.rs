@@ -338,7 +338,7 @@ impl App {
         
         let mut versions = vec![];
         let mut first_index = None;
-        for (i, (version, _)) in self.mc_versions.iter().rev().enumerate() {
+        for (i, (version, _)) in self.mc_versions.iter().enumerate().rev() {
             for range in &ranges {
                 if range.contains(version) {
                     versions.push(version);
@@ -360,7 +360,6 @@ impl App {
         let contents = self.find_property(&contents, "enforce_range")?.replace("true");
         self.write_properties(&contents)?;
         
-        self.fetch_dependencies()?;
         print!("Ready to build release for Minecraft versions: ");
         for (i, version) in versions.iter().enumerate() {
             if i > 0 { print!(", "); }
