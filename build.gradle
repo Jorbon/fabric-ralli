@@ -12,7 +12,7 @@ base {
 
 repositories {
 	flatDir {
-        dirs project.dependencies_path
+        dirs "local_maven"
     }
 }
 
@@ -30,7 +30,6 @@ loom {
 sourceSets {
 	main.java.srcDirs = ["mod_main_java_folder"]
 	main.resources.srcDirs = ["mod_main_resources_folder"]
-	
 	// client.java.srcDirs = ["mod_client_java_folder"]
 	// client.resources.srcDirs = ["mod_client_resources_folder"]
 }
@@ -61,14 +60,8 @@ processResources {
 		)
 	}
 	
-	filesMatching("${project.project_id}.mixins.json") {
-		expand (
-			java_version: JavaVersion.toVersion(project.java_version).toString().replace(".", "_"),
-		)
-	}
-	
 	// Does not work with splitEnvironmentSourceSets
-	filesMatching("${project.project_id}.client.mixins.json") {
+	filesMatching("*.mixins.json") {
 		expand (
 			java_version: JavaVersion.toVersion(project.java_version).toString().replace(".", "_"),
 		)

@@ -18,6 +18,7 @@ fn get_java_version(mc_version: &SemanticVersion) -> u32 {
     }).unwrap_or(8)
 }
 
+pub const LOCAL_MAVEN: &str = "local_maven";
 pub const GRADLE: &str = "./gradlew.bat";
 const GRADLE_PROPERTIES: &str = "gradle.properties";
 
@@ -87,10 +88,6 @@ impl App {
             let after = rest.split_at_checked(substring.len())?.1;
             Some(SubstringRef { before, substring, after })
         })().ok_or(format!("No property '{name}' found in gradle properties.").into())
-    }
-    
-    fn read_property(&self, name: &str) -> Result<String> {
-        Ok(self.find_property(&self.read_properties()?, name)?.substring.to_owned())
     }
     
     fn parse_ranges_slice(&self, ranges_part: &SubstringRef) -> Result<Vec<SemanticVersionRange>> {
@@ -200,7 +197,7 @@ impl App {
     }
     
     pub fn clean_dependencies(&self) -> Result<()> {
-        clean_folder(self.cwd.join(self.read_property("dependencies_path")?))?;
+        clean_folder(self.cwd.join(LOCAL_MAVEN))?;
         Ok(())
     }
     
@@ -234,7 +231,6 @@ impl App {
     pub fn fetch_dependencies(&self) -> Result<()> {
         let contents = self.read_properties()?;
         let version = self.find_property(&contents, "minecraft_version")?.substring.parse::<SemanticVersion>()?;
-        let dependencies_path = self.find_property(&contents, "dependencies_path")?.substring.to_owned();
         let mut new_contents = String::new();
         
         let copy_jars_into = self.cwd.join("run/mods");
@@ -256,7 +252,7 @@ impl App {
             let (line_before_comment, comment) = line.split_once("#").map(|(l, c)| (l, Some(c))).unwrap_or((line, None));
             if let Some((name, _)) = line_before_comment.split_once("=") {
                 match name.trim() {
-                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" | "dependencies_path" => {
+                    "loom_version" | "loader_version" | "minecraft_compatible_range" | "enforce_range" | "minecraft_version" | "yarn_mappings" | "java_version" => {
                         new_contents.push_str(line);
                     }
                     name => {
@@ -277,7 +273,7 @@ impl App {
                         let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
                             let file_name = format!("{}-{}.jar", name, dependency_version.version_number);
-                            let path = self.cwd.join(&dependencies_path).join(&file_name);
+                            let path = self.cwd.join(LOCAL_MAVEN).join(&file_name);
                             if !std::fs::exists(&path)? {
                                 self.api_download_file(&file.url, &path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
                                 downloaded = true;

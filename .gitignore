@@ -3,6 +3,6 @@ Cargo.lock
 /.gradle
 /build
 /run
-/dependencies
+/local_maven
 .vscode/
 gradle/wrapper
