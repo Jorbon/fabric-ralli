@@ -233,7 +233,11 @@ impl App {
         let version = self.find_property(&contents, "minecraft_version")?.substring.parse::<SemanticVersion>()?;
         let mut new_contents = String::new();
         
+        let download_jars_into = self.cwd.join(LOCAL_MAVEN);
+        std::fs::create_dir_all(&download_jars_into)?;
+        
         let copy_jars_into = self.cwd.join("run/mods");
+        std::fs::create_dir_all(&copy_jars_into)?;
         clean_folder(&copy_jars_into)?;
         
         let mut lines = contents.split('\n');
@@ -273,7 +277,7 @@ impl App {
                         let mut downloaded = false;
                         if let Some(file) = dependency_version.files.first() {
                             let file_name = format!("{}-{}.jar", name, dependency_version.version_number);
-                            let path = self.cwd.join(LOCAL_MAVEN).join(&file_name);
+                            let path = download_jars_into.join(&file_name);
                             if !std::fs::exists(&path)? {
                                 self.api_download_file(&file.url, &path).map_err(|e| format!("Cound not download dependency '{}-{}': {}", name, dependency_version.version_number, e))?;
                                 downloaded = true;
