@@ -124,7 +124,7 @@ impl App {
         file.read_to_string(&mut contents)?;
         
         let gradle_url_part = SubstringRef::find(&contents, "distributionUrl=", "\n").ok_or("Could not find location of active gradle source.")?;
-        if gradle_url_part.substring == new_url {
+        if gradle_url_part.substring.trim() == new_url.trim() {
             println!("Gradle version {} is up to date.", version.version);
             Ok(())
         } else {
